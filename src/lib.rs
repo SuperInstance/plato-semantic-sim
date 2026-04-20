@@ -29,7 +29,7 @@
 //! give ~100x speedup. We'd add it as an optional feature behind a `SimBackend` trait.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A vector with an identifier.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,13 +120,20 @@ impl SemanticSim {
             query = normalize(&query);
         }
         let k = top_k.min(self.config.max_results).max(1);
+        let metric = self.config.metric.clone();
         let mut results: Vec<SimilarityResult> = self.embeddings.values()
             .map(|emb| {
-                let score = self.compute_similarity(&query, &emb.vector);
-                self.comparison_count += 1;
+                let score = match metric {
+                    SimilarityMetric::Cosine => cosine_similarity(&query, &emb.vector),
+                    SimilarityMetric::Euclidean => -euclidean_distance(&query, &emb.vector),
+                    SimilarityMetric::Jaccard => jaccard_similarity(&query, &emb.vector),
+                    SimilarityMetric::DotProduct => dot_product(&query, &emb.vector),
+                    SimilarityMetric::Manhattan => -manhattan_distance(&query, &emb.vector),
+                };
                 SimilarityResult { id: emb.id.clone(), score, label: emb.label.clone() }
             })
             .collect();
+        self.comparison_count += results.len() as u64;
         // Sort by similarity (descending for cosine/dot, ascending for euclidean/manhattan)
         match self.config.metric {
             SimilarityMetric::Cosine | SimilarityMetric::DotProduct | SimilarityMetric::Jaccard => {
